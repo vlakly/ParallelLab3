@@ -4,7 +4,7 @@
 
 using namespace std;
 
-#define S 2048
+#define S 4096
 #define TAG_START_DATA 1
 #define TAG_MULTIPLICATION_DATA 2
 
@@ -57,7 +57,7 @@ bool MAT_check_equality(uint32_t *mA, uint32_t *mB) {
 	return true;
 }
 
-int testCount = 1;
+int testCount = 10;
 double avgTime = 0;
 
 uint32_t mat_a[S * S];
@@ -95,9 +95,6 @@ int main(int argc, char** argv) {
 			MAT_fill_random(mat_b);
 			MAT_fill_empty(mat_MPI);
 
-			MAT_fill_empty(mat_SCALAR);
-			MAT_scalar_multiply(mat_SCALAR, mat_a, mat_b);
-
 			//cout << "\nSCALAR MATRIX RESULT\n";
 			//MAT_print(mat_SCALAR);
 			//cout << "\n";
@@ -125,13 +122,6 @@ int main(int argc, char** argv) {
 			//cout << "\nMPI MATRIX RESULT\n";
 			//MAT_print(mat_MPI);
 			//cout << "\n";
-
-			if (MAT_check_equality(mat_SCALAR, mat_MPI)) {
-				cout << "Matrices are equal\n";
-			}
-			else {
-				cout << "Matrices aren't equal\n";
-			}
 		}
 
 		if (threadID > 0) {
@@ -165,12 +155,19 @@ int main(int argc, char** argv) {
 			cout << "MPI time: " << t_end - t_start << " s\n";
 		}
 
-		if (threadID == 0) {
-			t_start = MPI_Wtime();
-			MAT_scalar_multiply(mat_SCALAR, mat_a, mat_b);
-			t_end = MPI_Wtime();
-			cout << "Scalar time: " << t_end - t_start << " s\n";
-		}
+		//if (threadID == 0) {
+		//	t_start = MPI_Wtime();
+		//	MAT_scalar_multiply(mat_SCALAR, mat_a, mat_b);
+		//	t_end = MPI_Wtime();
+		//	cout << "Scalar time: " << t_end - t_start << " s\n";
+
+		//	if (MAT_check_equality(mat_SCALAR, mat_MPI)) {
+		//		cout << "Matrices are equal\n";
+		//	}
+		//	else {
+		//		cout << "Matrices aren't equal\n";
+		//	}
+		//}
 	}
 	MPI_Finalize();
 
