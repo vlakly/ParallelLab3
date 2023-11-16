@@ -7,8 +7,17 @@
 
 #define BOOST_UUID_COMPAT_PRE_1_71_MD5
 
+#define TAG_START_DATA 1
+
+MPI_Status status;
+
 using boost::uuids::detail::md5;
 using namespace std;
+
+int password_length = 5;
+char alphabet[] = { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" };
+int alphabet_length = sizeof(alphabet) / sizeof(alphabet[0]) - 1;
+int symbols_in_password = (alphabet_length - 1) * password_length;
 
 string toString(const md5::digest_type& digest) {
 	const auto charDigest = reinterpret_cast<const char*>(&digest);
@@ -37,20 +46,18 @@ string generatePassword(int length) {
 	return password;
 }
 string bruteForce(const md5::digest_type& passDigest, string password) {
-	char alphabet[] = { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" };
-	int alphabetLength = sizeof(alphabet) / sizeof(alphabet[0]) - 1;
 	string brutPassword = "00000";
 	md5 hash;
 	md5::digest_type brutDigest;
-	for (int a = 0; a < alphabetLength; a++) {
+	for (int a = 0; a < alphabet_length; a++) {
 		brutPassword[0] = alphabet[a];
-		for (int b = 0; b < alphabetLength; b++) {
+		for (int b = 0; b < alphabet_length; b++) {
 			brutPassword[1] = alphabet[b];
-			for (int c = 0; c < alphabetLength; c++) {
+			for (int c = 0; c < alphabet_length; c++) {
 				brutPassword[2] = alphabet[c];
-				for (int d = 0; d < alphabetLength; d++) {
+				for (int d = 0; d < alphabet_length; d++) {
 					brutPassword[3] = alphabet[d];
-					for (int e = 0; e < alphabetLength; e++) {
+					for (int e = 0; e < alphabet_length; e++) {
 						brutPassword[4] = alphabet[e];
 						hash.process_bytes(brutPassword.data(), brutPassword.size());
 						hash.get_digest(brutDigest);
@@ -70,8 +77,27 @@ string bruteForce(const md5::digest_type& passDigest, string password) {
 	}
 	return "-1";
 }
+string intToPassword(int num) {
+	string password;
 
-int main(int *argc, char **argv) {
+ 	for (int i = password_length - 1; i >= 0; i--) {
+		int current_num = num - (alphabet_length - 1) * i;
+		int current_char;
+		if (current_num > 0) {
+			current_char = alphabet[current_num];
+			num -= current_num;
+		}
+		else {
+			current_char = alphabet[0];
+		}
+		password.push_back(current_char);
+		//password.push_back('Z');
+	}
+
+	return password;
+}
+
+int main(int argc, char **argv) {
 
 	//#ifdef BOOST_UUID_COMPAT_PRE_1_71_MD5
 	//	cout << ("okay\n");
@@ -83,15 +109,12 @@ int main(int *argc, char **argv) {
 
 	srand(time(NULL));
 
-
-	int passwordLength = 5;
-
 	md5 hash;
 	md5::digest_type passDigest;
 
 	// random password
 	// 
-	//string password = generatePassword(passwordLength);
+	//string password = generatePassword(password_length);
 	//hash.process_bytes(password.data(), password.size());
 	//hash.get_digest(passDigest);
 	//hash.process_bytes(password.data(), password.size());
@@ -101,26 +124,68 @@ int main(int *argc, char **argv) {
 
 	// own password for test
 	// 
-	string password = "0123C";
-	hash.process_bytes(password.data(), password.size());
-	hash.get_digest(passDigest);
-	hash.process_bytes(password.data(), password.size());
-	hash.get_digest(passDigest);
-	cout << "Generated password is " << password << "\n";
-	cout << "Digest of test password is " << toString(passDigest) << "\n";
+	//string password = "0123C";
+	//hash.process_bytes(password.data(), password.size());
+	//hash.get_digest(passDigest);
+	//hash.process_bytes(password.data(), password.size());
+	//hash.get_digest(passDigest);
+	//cout << "Generated password is " << password << "\n";
+	//cout << "Digest of test password is " << toString(passDigest) << "\n";
 
-	bruteForce(passDigest, password);	
+	//bruteForce(passDigest, password);	
 
-	//cout << "Hello MPI\n";
+	MPI_Init(&argc, &argv);
 
-	//int numtasks, rank;
+	int threadID, threads, slaveCount, rows, offset;
 
-	//MPI_Init(argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &threadID);
+	MPI_Comm_size(MPI_COMM_WORLD, &threads);
 
-	//MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	//MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+	if (threadID == 0) {
+		string test;
+		int a;
+		a = 0;
+		test = intToPassword(a);
+		cout << "\n" << test << "\n";
+		a = 1;
+		test = intToPassword(a);
+		cout << "\n" << test << "\n";
+		a = 304;
+		test = intToPassword(a);
+		cout << "\n" << test << "\n";
+		a = 305;
+		test = intToPassword(a);
+		cout << "\n" << test << "\n";
+		cout << "\n" << symbols_in_password << "\n";
 
-	//printf("Hello MPI from process = %d, total number of processes: %d\n", rank, numtasks);
+		//slaveCount = threads - 1;
+		//rows = symbols_in_password / slaveCount;
+		//offset = 0;
 
-	//MPI_Finalize();
+		cout << "===MPI BRUTEFORCE===\n";
+		cout << "Thread count: " << threads << ", 1 - master, " << threads - 1 << " - slaves\n";
+		cout << "ABC length (start = 0): " << alphabet_length << ", symbols in password (start = 0): " << symbols_in_password << "\n";
+
+		//for (int dest = 1; dest <= slaveCount; dest++) {
+		//	if (dest == slaveCount) {
+		//		rows = symbols_in_password / slaveCount + symbols_in_password % slaveCount;
+		//	}
+		//	MPI_Send(&offset, 1, MPI_INT, dest, TAG_START_DATA, MPI_COMM_WORLD);
+		//	MPI_Send(&rows, 1, MPI_INT, dest, TAG_START_DATA, MPI_COMM_WORLD);
+
+		//	offset = offset + rows;
+		//}
+	}
+
+	//if (threadID > 0) {
+	//	int source = 0;
+	//	MPI_Recv(&offset, 1, MPI_INT, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
+	//	MPI_Recv(&rows, 1, MPI_INT, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
+
+	//	cout << "Thr " << threadID << " offset: " << offset << " rows: " << rows << "\n";
+	//}
+
+	MPI_Finalize();
+
+	return 0;
 }
