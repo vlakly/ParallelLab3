@@ -4,70 +4,52 @@
 
 using namespace std;
 
-#define S 8
-#define TAG_SEND_MATRIX_DATA 1
-#define TAG_CALCULATIONS 2
+#define S 4096
+#define TAG_START_DATA 1
+#define TAG_MULTIPLICATION_DATA 2
 
 MPI_Status status;
 
-uint32_t** create_empty() {
-	uint32_t** m = new uint32_t * [S];
-	for (int i = 0; i < S; ++i) {
-		m[i] = new uint32_t[S];
-		for (int j = 0; j < S; ++j) {
-			m[i][j] = 0;
-		}
-	}
-	return m;
-}
-uint32_t** create_random() {
-	uint32_t** m = new uint32_t * [S];
-	for (int i = 0; i < S; ++i) {
-		m[i] = new uint32_t[S];
-		for (int j = 0; j < S; ++j) {
-			m[i][j] = rand() % 20;
-		}
-	}
-	return m;
-}
-void fill_random(uint32_t m[S][S]) {
-	for (int i = 0; i < S; ++i) {
-		for (int j = 0; j < S; ++j) {
-			m[i][j] = rand() % 5;
-		}
+void MAT_fill_empty(uint32_t *m) {
+	for (int i = 0; i < S * S; i++) {
+		m[i] = 0;
 	}
 }
-void print_matrix(uint32_t** m) {
+void MAT_fill_random(uint32_t *m) {
+	for (int i = 0; i < S * S; i++) {
+		m[i] = rand() % 4;
+	}
+}
+void MAT_print(uint32_t *m) {
 	for (int i = 0; i < S; i++) {
 		for (int j = 0; j < S; j++) {
-			cout << m[i][j] << " ";
+			cout << m[j + i * S] << " ";
 		}
 		cout << "\n";
 	}
-	cout << "\n\n";
 }
-void multiply_matrices(uint32_t** res, uint32_t** mA, uint32_t** mB) {
-	for (int i = 0; i < S; ++i) {
-		for (int j = 0; j < S; ++j) {
-			for (int k = 0; k < S; k++) {
-				res[i][j] += mA[i][k] * mB[k][j];
-			}
-		}
-	}
-}
-void multiply_matrices_MPI(uint32_t** res, uint32_t** mA, uint32_t** mB, int start, int end) {
-	for (int i = 0; i < S; ++i) {
-		for (int j = start; j < end; ++j) {
-			for (int k = 0; k < S; k++) {
-				res[i][j] += mA[i][k] * mB[k][j];
-			}
-		}
-	}
-}
-bool check_equality(uint32_t** mA, uint32_t** mB) {
+void MAT_scalar_multiply(uint32_t *res, uint32_t* mA, uint32_t* mB) {
 	for (int i = 0; i < S; i++) {
 		for (int j = 0; j < S; j++) {
-			if (mA[i][j] != mB[i][j]) {
+			for (int k = 0; k < S; k++) {
+				res[j + i * S] += mA[k + i * S] * mB[j + k * S];
+			}
+		}
+	}
+}
+void MAT_multiply_MPI(uint32_t *res, uint32_t *mA, uint32_t *mB, int start, int end) {
+	for (int i = start; i < end; ++i) {
+		for (int j = 0; j < S; ++j) {
+			for (int k = 0; k < S; k++) {
+				res[j + i * S] += mA[k + i * S] * mB[j + k * S];
+			}
+		}
+	}
+}
+bool MAT_check_equality(uint32_t *mA, uint32_t *mB) {
+	for (int i = 0; i < S; i++) {
+		for (int j = 0; j < S; j++) {
+			if (mA[j + i * S] != mB[j + i * S]) {
 				return false;
 			}
 		}
@@ -78,120 +60,82 @@ bool check_equality(uint32_t** mA, uint32_t** mB) {
 int testCount = 10;
 double avgTime = 0;
 
-uint32_t matrix_a[S][S];
-uint32_t matrix_b[S][S];
-uint32_t matrix_simple[S][S];
-uint32_t matrix_MPI[S][S];
-
-uint32_t** MPI_res = create_empty();
+uint32_t mat_a[S * S];
+uint32_t mat_b[S * S];
+uint32_t mat_SCALAR[S * S];
+uint32_t mat_MPI[S * S];
 
 int main(int argc, char** argv) {
 	MPI_Init(&argc, &argv);
 
 	int threadID, threads, slaveCount, rows, offset;
-	int masterID = 0;
 
 	MPI_Comm_rank(MPI_COMM_WORLD, &threadID);
 	MPI_Comm_size(MPI_COMM_WORLD, &threads);
 
-	cout << "Current: " << threadID << ", overall: " << threads << "\n";
-
 	if (threadID == 0) {
-		fill_random(matrix_a);
-		fill_random(matrix_b);
-
-		slaveCount = threads - 1;
-		rows = S / slaveCount;
-		offset = 0;
-
-		// dest - destination thread
-		for (int dest = 1; dest <= slaveCount; dest++) {
-			MPI_Send(&offset, 1, MPI_INT, dest, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD);
-			MPI_Send(&rows, 1, MPI_INT, dest, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD);
-			MPI_Send(&matrix_a[offset][0], rows * S, MPI_UINT32_T, dest, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD);
-			MPI_Send(&matrix_b, S * S, MPI_UINT32_T, dest, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD);
-
-			offset = offset + rows;
-			cout << "offset is " << offset << "\n";
-		}
-
-		// recieve calculation 
-
-		for (int src = 1; src <= slaveCount; src++) {
-			MPI_Recv(&offset, 1, MPI_INT, src, TAG_CALCULATIONS, MPI_COMM_WORLD, &status);
-			MPI_Recv(&rows, 1, MPI_INT, src, TAG_CALCULATIONS, MPI_COMM_WORLD, &status);
-			MPI_Recv(&MPI_res[offset][0], rows * S, MPI_UINT32_T, src, TAG_CALCULATIONS, MPI_COMM_WORLD, &status);
-		}
-
-		cout << "Final matrix\n";
-		print_matrix(MPI_res);
-		cout << "\n";
-
-		cout << "why\n\n\n\n\n";
-		
-
-		//cout << "Result matix is \n";
-		//print_matrix(MPI_res);
-		//cout << "\n";
-
-		//print_matrix(MPI_res);
-
-		//int size = S / (threads - 1);
-		//for (int i = 0; i < threads - 1; i++) {
-		//	uint32_t ibeg = i * size;
-		//	uint32_t iend = (i + 1) * size;
-		//}
+		cout << "===MPI MULTIPLICATION===\n";
+		cout << "Thread count: " << threads << ", 1 - master, " << threads - 1 << " - slaves\n";
 	}
 
-	if (threadID > 0) {
-		int source = 0;
-		MPI_Recv(&offset, 1, MPI_INT, source, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD, &status);
-		MPI_Recv(&rows, 1, MPI_INT, source, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD, &status);
-		MPI_Recv(&matrix_a, rows * S, MPI_UINT32_T, source, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD, &status);
-		MPI_Recv(&matrix_b, S * S, MPI_UINT32_T, source, TAG_SEND_MATRIX_DATA, MPI_COMM_WORLD, &status);
-		cout << "OFFSET: " << offset << "\n";
-		cout << "ROWS: " << rows << "\n";
+	for (int i = 0; i < testCount; i++) {
+		int masterID = 0;
 
-		//cout << "Thread " << threadID << " recieved part of m A: \n";
-		//print_matrix(matrix_a);
-		//cout << "\n";
-		//cout << "Thread " << threadID << " recieved m B: \n";
-		//print_matrix(matrix_b);
-		//cout << "\n";
+		double t_start, t_end;
 
-		for (int k = 0; k < S; k++) {
-			for (int i = 0; i < rows; i++) {
-				MPI_res[i][k] = 0;
-				for (int j = 0; j < S; j++) {
-					MPI_res[i][k] += matrix_a[i][j] * matrix_b[j][k];
+		//cout << "Current: " << threadID << ", overall: " << threads << "\n";
+		t_start = MPI_Wtime();
+		if (threadID == 0) {
+			cout << "Test case #" << i << "\n";
+			slaveCount = threads - 1;
+			rows = S / slaveCount;
+			offset = 0;
+
+			MAT_fill_random(mat_a);
+			MAT_fill_random(mat_b);
+			MAT_fill_empty(mat_MPI);
+
+			// dest - destination thread
+			for (int dest = 1; dest <= slaveCount; dest++) {
+				if (dest == slaveCount) {
+					rows = S / slaveCount + S % slaveCount;
 				}
+				MPI_Send(&offset, 1, MPI_INT, dest, TAG_START_DATA, MPI_COMM_WORLD);
+				MPI_Send(&rows, 1, MPI_INT, dest, TAG_START_DATA, MPI_COMM_WORLD);
+				MPI_Send(&mat_a[offset * S], rows * S, MPI_UINT32_T, dest, TAG_START_DATA, MPI_COMM_WORLD);
+				MPI_Send(&mat_b, S * S, MPI_UINT32_T, dest, TAG_START_DATA, MPI_COMM_WORLD);
+
+				offset = offset + rows;
+			}
+
+			// recieve calculation 
+			for (int src = 1; src <= slaveCount; src++) {
+				MPI_Recv(&offset, 1, MPI_INT, src, TAG_MULTIPLICATION_DATA, MPI_COMM_WORLD, &status);
+				MPI_Recv(&rows, 1, MPI_INT, src, TAG_MULTIPLICATION_DATA, MPI_COMM_WORLD, &status);
+				MPI_Recv(&mat_MPI[offset * S], rows * S, MPI_UINT32_T, src, TAG_MULTIPLICATION_DATA, MPI_COMM_WORLD, &status);
 			}
 		}
 
-		MPI_Send(&offset, 1, MPI_INT, masterID, TAG_CALCULATIONS, MPI_COMM_WORLD);
-		MPI_Send(&rows, 1, MPI_INT, masterID, TAG_CALCULATIONS, MPI_COMM_WORLD);
-		MPI_Send(&MPI_res, rows * S, MPI_UINT32_T, masterID, TAG_CALCULATIONS, MPI_COMM_WORLD);
+		if (threadID > 0) {
+			int source = 0;
+			MPI_Recv(&offset, 1, MPI_INT, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
+			MPI_Recv(&rows, 1, MPI_INT, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
+			MPI_Recv(&mat_a[offset * S], rows * S, MPI_UINT32_T, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
+			MPI_Recv(&mat_b, S * S, MPI_UINT32_T, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
 
-		//cout << "Thread " << threadID << " result matix is \n";
-		//print_matrix(MPI_res);
-		//cout << "\n";
+			MAT_multiply_MPI(mat_MPI, mat_a, mat_b, offset, offset + rows);
 
-		//for (int k = 0; k < S; k++) {
-		//	for (int i = 0; i < rows; i++) {
-		//		MPI_res[i][k] = 0;
-		//		for (int j = 0; j < S; j++) {
-		//			//MPI_res[i][k] += mA[i][j] * mB[j][k];
-		//		}
-		//		//cout << MPI_res[i][k] << " ";
-		//	}
-		//	cout << "\n";
-		//}
-		//cout << "\n\n";
-		//for (int i = 0; i < S; i++) {
-		//	for (int j = 0; j < S; j++) {
-		//		MPI_res[i][j] = j * i + j;
-		//	}
-		//}
+			MPI_Send(&offset, 1, MPI_INT, masterID, TAG_MULTIPLICATION_DATA, MPI_COMM_WORLD);
+			MPI_Send(&rows, 1, MPI_INT, masterID, TAG_MULTIPLICATION_DATA, MPI_COMM_WORLD);
+			MPI_Send(&mat_MPI[offset * S], rows * S, MPI_UINT32_T, masterID, TAG_MULTIPLICATION_DATA, MPI_COMM_WORLD);
+		}
+		t_end = MPI_Wtime();
+
+		if (threadID == 0) {
+			cout << "MPI time: " << t_end - t_start << " s\n";
+		}
 	}
 	MPI_Finalize();
+
+	return 0;
 }
