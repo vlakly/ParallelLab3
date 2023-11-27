@@ -8,6 +8,7 @@
 #include "mpi.h"
 
 #define TAG_START_DATA 1
+#define TAG_RESULT_DATA 2
 
 MPI_Status status;
 
@@ -21,7 +22,7 @@ const int password_length = 5;
 
 string generatePassword(int length);
 string digestToString(const md5::digest_type& digest);
-void bruteForce(int length, int start, int end, unsigned int digest);
+string bruteForce(int length, int start, int end, unsigned int digest);
 
 int main(int argc, char **argv) {
 	srand(time(NULL));
@@ -70,12 +71,26 @@ int main(int argc, char **argv) {
 
 			offset += iter_piece;
 		}
+
+		for (int src = 1; src <= slaves; src++) {
+			string brut_password;
+			int char_count;
+			MPI_Probe(src, TAG_RESULT_DATA, MPI_COMM_WORLD, &status);
+			MPI_Get_count(&status, MPI_CHAR, &char_count);
+			for (int i = 0; i < char_count; i++) {
+				brut_password.push_back(0);
+			}
+			MPI_Recv(&brut_password[0], char_count, MPI_CHAR, src, TAG_RESULT_DATA, MPI_COMM_WORLD, &status);
+			cout << "Thread " << src << ", result " << brut_password << "\n";
+
+		}
 	}
 
 	if (thread_id > 0) {
 		int start, end;
 		int source = 0;
 		unsigned int digest;
+		string result;
 
 		MPI_Recv(&start, 1, MPI_INT, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
 		MPI_Recv(&end, 1, MPI_INT, source, TAG_START_DATA, MPI_COMM_WORLD, &status);
@@ -83,7 +98,9 @@ int main(int argc, char **argv) {
 
 		//cout << "Recieved: start " << start << " end " << end << " digest " << digest << "\n";
 
-		bruteForce(password_length, start, end, digest);
+		result = bruteForce(password_length, start, end, digest);
+
+		MPI_Send(result.c_str(), result.size(), MPI_CHAR, source, TAG_RESULT_DATA, MPI_COMM_WORLD);
 	}
 	t_end = MPI_Wtime();
 
@@ -122,7 +139,7 @@ string digestToString(const md5::digest_type& digest) {
 	boost::algorithm::hex(charDigest, charDigest + sizeof(md5::digest_type), back_inserter(result));
 	return result;
 }
-void bruteForce(int length, int start, int end, unsigned int given_digest) {
+string bruteForce(int length, int start, int end, unsigned int given_digest) {
 	string brut_password;
 
 	md5 brut_hash;
@@ -148,7 +165,13 @@ void bruteForce(int length, int start, int end, unsigned int given_digest) {
 		if (*brut_digest == given_digest) {
 			cout << "\n === BRUTEFORCE IS DONE === \n";
 			cout << "Password is found: " << brut_password << ", digest: " << *brut_digest << "\n\n";
-			break;
+			return brut_password;
 		}
 	}
+
+	for (int i = 0; i < length; i++) {
+		brut_password.at(i) = '-';
+	}
+
+	return brut_password;
 }
